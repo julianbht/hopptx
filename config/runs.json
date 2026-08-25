@@ -1,0 +1,29 @@
+[
+  {
+    "name": "default",
+    "start": "2026-04-01",
+    "end": "2026-06-30",
+    "input": {
+      "type": "directory",
+      "path": "data/reports"
+    },
+    "template": "template-branded.pptx",
+    "exclude_canceled": true,
+    "cost_per_training": 495,
+    "evaluation_rate_percentage": 85,
+    "top_topics_count": 8,
+    "top_topics_hard_cutoff": 10,
+    "group_topics": true,
+    "clean_topic_names": true,
+    "topic_fuzzy_match_threshold": 90,
+    "category_reference": "config/reference/Workshop_descriptions.docx",
+    "category_fuzzy_match_threshold": 86,
+    "max_programs_per_table_page": 42,
+    "single_page_soft_overflow": 4,
+    "topic_max_chars": null,
+    "topic_truncation_suffix": null,
+    "filename_suffix": null,
+    "companies_inline": null,
+    "strip_company_prefix": true
+  }
+]

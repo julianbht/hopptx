@@ -1,0 +1,29 @@
+[project]
+name = "hopptx"
+version = "0.1.0"
+description = "Generate PowerPoint presentations from sign-up data"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "rich>=13.0",
+    "typer>=0.12",
+    "pydantic>=2.0",
+    "python-pptx>=0.6",
+    "python-docx>=1.0",
+    "rapidfuzz>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+hopptx         = "hopptx.main:app"
+hopptx-default = "hopptx.main:run_pptx_generator"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
