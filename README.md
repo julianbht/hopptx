@@ -22,7 +22,7 @@ A black terminal window will briefly appear behind the app: that's normal, it's 
 3. **Click "Generate Presentations"**, progress is shown right in the window.
 4. When done, the output folder opens automatically with one PowerPoint per company.
 
-If something goes wrong, an error message pops up in plain language. A detailed log file is always saved alongside the output (use the "View Log" button to open it).
+If something goes wrong, an error message pops up. A detailed log file is always saved alongside the output (use the "View Log" button to open it).
 
 ## Excel file format
 
