@@ -25,17 +25,17 @@ from hopptx.schemas.config import InputConfig, RunConfig, load_runs
 log = logging.getLogger(__name__)
 
 
-def _open_folder(path: Path) -> None:
-    """Open a folder in the system file explorer."""
-    folder = str(path.resolve())
+def _open_path(path: Path) -> None:
+    """Open a file or folder with the system default application."""
+    target = str(path.resolve())
     system = platform.system()
     try:
         if system == "Windows":
-            os.startfile(folder)
+            os.startfile(target)
         elif system == "Darwin":
-            subprocess.Popen(["open", folder])
+            subprocess.Popen(["open", target])
         else:
-            subprocess.Popen(["xdg-open", folder])
+            subprocess.Popen(["xdg-open", target])
     except Exception:
         pass  # If it fails, user still has the path shown in the window
 
@@ -124,6 +124,13 @@ class EasyApp:
             state="disabled",
         )
         self.open_folder_btn.pack(side="left")
+        self.view_log_btn = ttk.Button(
+            bottom,
+            text="View Log",
+            command=self._view_log,
+            state="disabled",
+        )
+        self.view_log_btn.pack(side="left", padx=(6, 0))
         ttk.Button(bottom, text="Close", command=self.root.destroy).pack(side="right")
 
     # -- Actions ------------------------------------------------------------
@@ -132,8 +139,24 @@ class EasyApp:
         folder = filedialog.askdirectory(
             title="Select folder containing Excel reports", parent=self.root
         )
-        if folder:
-            self.folder_var.set(folder)
+        if not folder:
+            return
+        self.folder_var.set(folder)
+
+        files = sorted(Path(folder).glob("*.xlsx"))
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
+        if not files:
+            self._log(f"No Excel (.xlsx) files found in: {folder}")
+            messagebox.showwarning(
+                "No Excel files found",
+                f"No .xlsx files were found in:\n{folder}\n\nPlease choose a different folder.",
+            )
+        else:
+            self._log(f"Found {len(files)} Excel file(s) in: {folder}")
+            for f in files:
+                self._log(f"  {f.name}")
 
     def _log(self, message: str) -> None:
         self.log_text.configure(state="normal")
@@ -206,6 +229,7 @@ class EasyApp:
 
         self.generate_btn.configure(state="disabled")
         self.open_folder_btn.configure(state="disabled")
+        self.view_log_btn.configure(state="normal")
         self.progress.start(12)
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
@@ -280,11 +304,20 @@ class EasyApp:
         self._log(f"\nYour reports are here: {self.output_dir.resolve()}")
 
         messagebox.showinfo("Done", f"{len(written)} presentation(s) created.")
-        _open_folder(self.output_dir)
+        _open_path(self.output_dir)
 
     def _open_output_folder(self) -> None:
         if self.output_dir is not None:
-            _open_folder(self.output_dir)
+            _open_path(self.output_dir)
+
+    def _view_log(self) -> None:
+        if self.output_dir is None:
+            return
+        log_path = self.output_dir / "run.log"
+        if log_path.exists():
+            _open_path(log_path)
+        else:
+            messagebox.showinfo("No log yet", "The log file hasn't been created yet.")
 
     def _poll_log_queue(self) -> None:
         try:
