@@ -88,9 +88,37 @@ def _filter_reports_by_companies(
 
 
 def load_reports(config: RunConfig) -> list[tuple[str, pd.DataFrame]]:
-    """Load report files based on input config (file or directory)."""
-    input_path = Path(config.input.path)
+    """Load report files based on input config (file, directory, or files)."""
     companies_inline = config.companies_inline
+
+    if config.input.type == "files":
+        xlsx_files = [Path(p) for p in (config.input.paths or [])]
+
+        results = []
+        skipped = []
+        for file in xlsx_files:
+            try:
+                results.append(load_report_file(file))
+            except (ValueError, Exception) as e:
+                log.warning(f"Skipping '{file.name}': {e}")
+                skipped.append(file.name)
+
+        if skipped:
+            log.warning(
+                f"Skipped {len(skipped)} file(s) that could not be loaded: "
+                f"{', '.join(skipped)}"
+            )
+
+        if not results:
+            raise ValueError(
+                "None of the selected .xlsx files could be loaded. "
+                "Make sure your Excel files have the required columns."
+            )
+
+        log.info(f"Loaded {len(results)} report file(s)")
+        return _filter_reports_by_companies(results, companies_inline)
+
+    input_path = Path(config.input.path)
 
     if config.input.type == "file":
         if not input_path.exists():

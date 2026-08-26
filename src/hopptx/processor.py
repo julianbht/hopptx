@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 def _format_date(date: pd.Timestamp) -> str:
     """Format date as 'DD Month YYYY' (e.g., '24 June 2025')."""
-    return date.strftime("%-d %B %Y")
+    return f"{date.day} {date.strftime('%B %Y')}"
 
 
 _COURSE_LEVEL_RE = re.compile(r'\d{3}')

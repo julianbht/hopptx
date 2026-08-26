@@ -1,6 +1,6 @@
 """Graphical wizard for non-technical users.
 
-Opens a small window with a folder picker and date pickers, generates
+Opens a small window with a multi-file picker and date pickers, generates
 presentations in a background thread, and opens the output folder when done.
 No terminal interaction is required.
 """
@@ -62,7 +62,8 @@ class EasyApp:
         self.root.geometry("640x480")
         self.root.minsize(560, 420)
 
-        self.folder_var = tk.StringVar()
+        self.selected_files: list[Path] = []
+        self.files_summary_var = tk.StringVar(value="No files selected")
         self.log_queue: "queue.Queue[str]" = queue.Queue()
         self.output_dir: Path | None = None
         self.file_handler: logging.FileHandler | None = None
@@ -78,11 +79,11 @@ class EasyApp:
 
         top = ttk.Frame(self.root)
         top.pack(fill="x", **pad)
-        ttk.Label(top, text="Excel folder:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(top, textvariable=self.folder_var, state="readonly", width=48).grid(
+        ttk.Label(top, text="Excel files:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.files_summary_var, state="readonly", width=40).grid(
             row=0, column=1, sticky="ew", padx=(6, 6)
         )
-        ttk.Button(top, text="Browse...", command=self._browse).grid(row=0, column=2)
+        ttk.Button(top, text="Select Files...", command=self._select_files).grid(row=0, column=2)
         top.columnconfigure(1, weight=1)
 
         dates = ttk.Frame(self.root)
@@ -135,28 +136,23 @@ class EasyApp:
 
     # -- Actions ------------------------------------------------------------
 
-    def _browse(self) -> None:
-        folder = filedialog.askdirectory(
-            title="Select folder containing Excel reports", parent=self.root
+    def _select_files(self) -> None:
+        files = filedialog.askopenfilenames(
+            title="Select Excel report file(s)",
+            filetypes=[("Excel files", "*.xlsx")],
+            parent=self.root,
         )
-        if not folder:
+        if not files:
             return
-        self.folder_var.set(folder)
+        self.selected_files = [Path(f) for f in files]
+        self.files_summary_var.set(f"{len(self.selected_files)} file(s) selected")
 
-        files = sorted(Path(folder).glob("*.xlsx"))
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
-        if not files:
-            self._log(f"No Excel (.xlsx) files found in: {folder}")
-            messagebox.showwarning(
-                "No Excel files found",
-                f"No .xlsx files were found in:\n{folder}\n\nPlease choose a different folder.",
-            )
-        else:
-            self._log(f"Found {len(files)} Excel file(s) in: {folder}")
-            for f in files:
-                self._log(f"  {f.name}")
+        self._log(f"Selected {len(self.selected_files)} Excel file(s):")
+        for f in self.selected_files:
+            self._log(f"  {f.name}")
 
     def _log(self, message: str) -> None:
         self.log_text.configure(state="normal")
@@ -165,18 +161,10 @@ class EasyApp:
         self.log_text.configure(state="disabled")
 
     def _start_generation(self) -> None:
-        folder = self.folder_var.get().strip()
-        if not folder:
+        if not self.selected_files:
             messagebox.showerror(
-                "No folder selected",
-                "Please choose the folder that contains your Excel reports.",
-            )
-            return
-
-        if not list(Path(folder).glob("*.xlsx")):
-            messagebox.showerror(
-                "No Excel files found",
-                f"No .xlsx files were found in:\n{folder}\n\nPlease choose a different folder.",
+                "No files selected",
+                "Please select the Excel report file(s) to process.",
             )
             return
 
@@ -210,7 +198,9 @@ class EasyApp:
             update={
                 "start": start,
                 "end": end,
-                "input": InputConfig(type="directory", path=folder),
+                "input": InputConfig(
+                    type="files", paths=[str(f) for f in self.selected_files]
+                ),
             }
         )
 

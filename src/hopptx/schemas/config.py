@@ -11,8 +11,9 @@ from hopptx.paths import RUNS_FILE, TEMPLATE_DIR
 class InputConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    type: str  # "file" or "directory"
-    path: str
+    type: str  # "file", "directory", or "files"
+    path: str = ""
+    paths: Optional[list[str]] = None
 
 
 class RunConfig(BaseModel):
@@ -48,9 +49,14 @@ class RunConfig(BaseModel):
             raise ValueError(
                 f"Run '{self.name}': template file not found: {template_path}"
             )
-        if self.input.type not in ("file", "directory"):
+        if self.input.type not in ("file", "directory", "files"):
             raise ValueError(
-                f"Run '{self.name}': input.type must be 'file' or 'directory', got '{self.input.type}'"
+                f"Run '{self.name}': input.type must be 'file', 'directory', or 'files', "
+                f"got '{self.input.type}'"
+            )
+        if self.input.type == "files" and not self.input.paths:
+            raise ValueError(
+                f"Run '{self.name}': input.paths must be a non-empty list when input.type is 'files'"
             )
         if self.max_programs_per_table_page <= 0:
             raise ValueError(
