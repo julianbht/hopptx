@@ -4,7 +4,7 @@ Generate PowerPoint presentations from Calendly sign-up data.
 
 ## Setup (one time)
 
-Install UV — a small tool that manages Python for you:
+Install UV, a small tool that manages Python for you:
 
 https://docs.astral.sh/uv/getting-started/installation/
 
@@ -15,14 +15,14 @@ Open the `hopptx` folder and double-click:
 - **Windows:** `run.bat`
 - **Mac:** `run.command`
 
-A window opens where you:
+A black terminal window will briefly appear behind the app: that's normal, it's just how Windows launches the program, and you can ignore it (don't close it, or the app will close too). The actual window you'll use looks like a regular program window:
 
-1. **Click "Browse..." and pick the folder** containing your Excel reports — no need to select individual files, every `.xlsx` file in the folder is picked up automatically.
+1. **Click "Select Files..." and pick your Excel report(s)**, you can select multiple `.xlsx` files at once.
 2. **Pick a start and end date** from the calendar date pickers.
-3. **Click "Generate Presentations"** — progress is shown right in the window.
+3. **Click "Generate Presentations"**, progress is shown right in the window.
 4. When done, the output folder opens automatically with one PowerPoint per company.
 
-If something goes wrong, an error message pops up in plain language. A detailed log file is always saved alongside the output.
+If something goes wrong, an error message pops up in plain language. A detailed log file is always saved alongside the output (use the "View Log" button to open it).
 
 ## Excel file format
 
