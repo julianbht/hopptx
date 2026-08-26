@@ -1,51 +1,51 @@
 # hopptx
 
-Generate PowerPoint presentations from sign-up report data.
+Generate PowerPoint presentations from Calendly sign-up data.
 
-## Getting Started
+## Setup (one time)
 
 ### 1. Install UV
 
-UV is a tool that manages Python and project dependencies for you. Install it by following the instructions at:
+UV is a small tool that manages Python for you. Install it from:
 
 https://docs.astral.sh/uv/getting-started/installation/
 
 You do not need to install Python separately — UV handles that automatically.
 
-### 2. Open a Terminal
+### 2. Create a desktop shortcut
 
-You need a terminal (command line) to run this tool.
+Open the `hopptx` folder in a terminal:
 
-**Windows:**
-Press `Win + R`, type `cmd`, and press Enter. Or search for "Command Prompt" in the Start menu.
+**Windows:** Right-click the `hopptx` folder and select **"Open in Terminal"**.
 
-**Mac:**
-Press `Cmd + Space`, type `Terminal`, and press Enter.
+**Mac:** Right-click the `hopptx` folder and select **"New Terminal at Folder"** (you may need to enable this in System Settings > Keyboard > Shortcuts > Services).
 
-Then navigate to the project folder. For example, if the project is on your Desktop:
+Then paste this command and press Enter:
 
 ```
-cd Desktop/hopptx
+uv run hopptx-setup-shortcut
 ```
 
-### 3. Install Dependencies
+This creates a shortcut on your Desktop. From now on, just double-click it.
 
-Run this once (or after updates):
+## Usage
 
-```
-uv sync
-```
+Double-click the **hopptx** shortcut on your Desktop (or run `uv run hopptx-easy` from a terminal in the project folder).
 
-This downloads everything the tool needs to run. It only needs to be done once.
+The tool will:
 
-### 4. Prepare Your Data
+1. **Ask you to pick your Excel file(s)** — a file picker window will open.
+2. **Ask for a date range** — type a start and end date (e.g. `2026-04-01`).
+3. **Generate the presentations** — one PowerPoint per company.
+4. **Open the output folder** — your reports are ready.
 
-Place your `.xlsx` Excel files in the folder specified by `input.path` in `config/runs.json` (by default, the `reports/` folder).
+If something goes wrong, the tool will show an error message in plain language. A detailed log file is always saved alongside the output.
 
-Each Excel file represents one company and must have:
+## Excel file format
 
-- **One sheet**, named after the company (the sheet name becomes the company name in the presentation).
-- **The following columns** (extra columns are fine and will be ignored):
+Each `.xlsx` file represents one company. The first sheet name becomes the company name in the presentation.
+
+The following columns are required (extra columns are fine and will be ignored):
 
 | Column | Description |
 |--------|-------------|
@@ -60,40 +60,15 @@ Each Excel file represents one company and must have:
 | Event Created Date & Time | When the sign-up was created |
 | Canceled | Whether the sign-up was canceled |
 
-If any of these columns are missing, the tool will tell you which ones are missing and stop.
+## Advanced usage
 
-### 5. Configure
-
-Edit `config/runs.json` before each run. The key fields:
-
-| Field | What to set |
-|-------|-------------|
-| `start` / `end` | Date range to filter sign-ups (format: `YYYY-MM-DD`) |
-| `input.path` | Path to the directory or file containing the `.xlsx` report(s) |
-| `input.type` | `"directory"` (load all `.xlsx` in a folder) or `"file"` (single file) |
-| `cost_per_training` | Per-attendee training cost |
-| `filename_suffix` | Text appended to each output filename, or `null` for none |
-| `companies_inline` | List of company names to generate for, or `null` for all |
-
-The other fields (template, topic grouping, fuzzy thresholds, etc.) are tuned and generally don't need changing.
-
-### 6. Run
+For more control, you can edit `config/runs.json` directly and run:
 
 ```
 uv run hopptx default
 ```
 
-This reads your Excel files, calculates training metrics, and generates one PowerPoint presentation per company.
-
-The output is saved to `output/pptx/default/...` in a timestamped folder. A `run.log` file is also created there with details about what happened.
-
-#### Shortcut
-
-```
-uv run hopptx-default
-```
-
-Does the same thing — runs the `default` configuration.
+See `config/runs.json` for all available options (date range, cost per training, topic grouping, etc.).
 
 ## Tests
 

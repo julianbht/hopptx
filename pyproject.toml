@@ -19,8 +19,10 @@ dev = ["pytest>=8.0"]
 docs = ["markdown-pdf>=1.0"]
 
 [project.scripts]
-hopptx         = "hopptx.main:app"
-hopptx-default = "hopptx.main:run_pptx_generator"
+hopptx                = "hopptx.main:app"
+hopptx-default        = "hopptx.main:run_pptx_generator"
+hopptx-easy           = "hopptx.easy:run_easy"
+hopptx-setup-shortcut = "hopptx.shortcut:create_shortcut"
 
 [build-system]
 requires = ["setuptools>=68.0"]
