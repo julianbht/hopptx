@@ -8,8 +8,6 @@ Install UV — a small tool that manages Python for you:
 
 https://docs.astral.sh/uv/getting-started/installation/
 
-You do not need to install Python separately — UV handles that automatically.
-
 ## Usage
 
 Open the `hopptx` folder and double-click:
@@ -54,6 +52,14 @@ uv run hopptx default
 ```
 
 See `config/runs.json` for all available options (date range, cost per training, topic grouping, etc.).
+
+## Generate this README as PDF
+
+```
+uv run --extra docs python build_readme_pdf.py
+```
+
+This creates `README.pdf` in the project folder.
 
 ## Tests
 
