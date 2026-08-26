@@ -1,8 +1,8 @@
 [
   {
     "name": "default",
-    "start": "2026-04-01",
-    "end": "2026-06-30",
+    "start": "2025-01-01",
+    "end": "2026-12-31",
     "input": {
       "type": "directory",
       "path": "./reports"
