@@ -15,14 +15,14 @@ Open the `hopptx` folder and double-click:
 - **Windows:** `run.bat`
 - **Mac:** `run.command`
 
-The tool will:
+A window opens where you:
 
-1. **Ask you to pick your Excel file(s)** — a file picker window will open.
-2. **Ask for a date range** — type a start and end date (e.g. `2026-04-01`).
-3. **Generate the presentations** — one PowerPoint per company.
-4. **Open the output folder** — your reports are ready.
+1. **Click "Browse..." and pick the folder** containing your Excel reports — no need to select individual files, every `.xlsx` file in the folder is picked up automatically.
+2. **Pick a start and end date** from the calendar date pickers.
+3. **Click "Generate Presentations"** — progress is shown right in the window.
+4. When done, the output folder opens automatically with one PowerPoint per company.
 
-If something goes wrong, the tool will show an error message in plain language. A detailed log file is always saved alongside the output.
+If something goes wrong, an error message pops up in plain language. A detailed log file is always saved alongside the output.
 
 ## Excel file format
 

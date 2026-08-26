@@ -1,24 +1,28 @@
-"""Interactive wizard for non-technical users.
+"""Graphical wizard for non-technical users.
 
-Opens a file picker, asks for date range, generates presentations,
-and opens the output folder when done.
+Opens a small window with a folder picker and date pickers, generates
+presentations in a background thread, and opens the output folder when done.
+No terminal interaction is required.
 """
 
+import logging
 import os
 import platform
+import queue
 import subprocess
-import sys
-import logging
-from datetime import datetime
+import threading
+import tkinter as tk
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
-from rich.console import Console
+from tkcalendar import DateEntry
 
-from hopptx.main import _setup_logging, generate_presentations
+from hopptx.main import generate_presentations
 from hopptx.paths import OUTPUT_DIR
-from hopptx.schemas.config import InputConfig, load_runs
+from hopptx.schemas.config import InputConfig, RunConfig, load_runs
 
-console = Console()
+log = logging.getLogger(__name__)
 
 
 def _open_folder(path: Path) -> None:
@@ -33,194 +37,267 @@ def _open_folder(path: Path) -> None:
         else:
             subprocess.Popen(["xdg-open", folder])
     except Exception:
-        pass  # If it fails, user still has the printed path
+        pass  # If it fails, user still has the path shown in the window
 
 
-def _pick_files_or_folder() -> tuple[str, str]:
-    """Open a native file dialog. Returns (input_type, input_path)."""
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except ImportError:
-        console.print(
-            "\n[red]Could not open file picker (tkinter not available).[/red]\n"
-            "You can enter the path manually instead."
+class _QueueLogHandler(logging.Handler):
+    """Logging handler that pushes formatted records onto a thread-safe queue.
+
+    The generation work runs on a background thread, but only the main
+    thread is allowed to touch Tk widgets — the queue is the hand-off point.
+    """
+
+    def __init__(self, log_queue: "queue.Queue[str]") -> None:
+        super().__init__()
+        self._queue = log_queue
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._queue.put(self.format(record))
+
+
+class EasyApp:
+    def __init__(self) -> None:
+        self.root = tk.Tk()
+        self.root.title("hopptx — Presentation Generator")
+        self.root.geometry("640x480")
+        self.root.minsize(560, 420)
+
+        self.folder_var = tk.StringVar()
+        self.log_queue: "queue.Queue[str]" = queue.Queue()
+        self.output_dir: Path | None = None
+        self.file_handler: logging.FileHandler | None = None
+        self.queue_handler: _QueueLogHandler | None = None
+
+        self._build_ui()
+        self.root.after(100, self._poll_log_queue)
+
+    # -- UI construction --------------------------------------------------
+
+    def _build_ui(self) -> None:
+        pad = {"padx": 8, "pady": 6}
+
+        top = ttk.Frame(self.root)
+        top.pack(fill="x", **pad)
+        ttk.Label(top, text="Excel folder:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.folder_var, state="readonly", width=48).grid(
+            row=0, column=1, sticky="ew", padx=(6, 6)
         )
-        return _manual_path_entry()
+        ttk.Button(top, text="Browse...", command=self._browse).grid(row=0, column=2)
+        top.columnconfigure(1, weight=1)
 
-    root = tk.Tk()
-    root.withdraw()
-    # Bring dialog to front
-    root.attributes("-topmost", True)
+        dates = ttk.Frame(self.root)
+        dates.pack(fill="x", **pad)
+        ttk.Label(dates, text="Start date:").grid(row=0, column=0, sticky="w")
+        self.start_date = DateEntry(dates, date_pattern="yyyy-mm-dd")
+        self.start_date.grid(row=0, column=1, sticky="w", padx=(6, 24))
+        ttk.Label(dates, text="End date:").grid(row=0, column=2, sticky="w")
+        self.end_date = DateEntry(dates, date_pattern="yyyy-mm-dd")
+        self.end_date.grid(row=0, column=3, sticky="w", padx=(6, 0))
 
-    console.print("\nA file picker will open. Choose one of the following:")
-    console.print("  [bold]1[/bold] — Select one or more Excel files")
-    console.print("  [bold]2[/bold] — Select a folder containing Excel files")
+        today = date.today()
+        self.end_date.set_date(today)
+        self.start_date.set_date(today - timedelta(days=90))
 
-    choice = ""
-    while choice not in ("1", "2"):
-        choice = input("\nYour choice (1 or 2): ").strip()
-
-    if choice == "1":
-        files = filedialog.askopenfilenames(
-            title="Select Excel report file(s)",
-            filetypes=[("Excel files", "*.xlsx")],
-            parent=root,
+        action = ttk.Frame(self.root)
+        action.pack(fill="x", **pad)
+        self.generate_btn = ttk.Button(
+            action, text="Generate Presentations", command=self._start_generation
         )
-        root.destroy()
-        if not files:
-            return "", ""
-        if len(files) == 1:
-            return "file", files[0]
-        # Multiple files: find common parent directory, copy to temp approach
-        # Actually — we only support file or directory mode.
-        # For multiple files, use the common directory and filter later.
-        # Simplest: if all in same directory, use directory mode.
-        parents = {str(Path(f).parent) for f in files}
-        if len(parents) == 1:
-            return "directory", str(Path(files[0]).parent)
-        # Files from different folders — use the first file only, warn
-        console.print(
-            "\n[yellow]Files from multiple folders selected. "
-            "Using only the first file.[/yellow]"
+        self.generate_btn.pack(side="left")
+        self.progress = ttk.Progressbar(action, mode="indeterminate")
+        self.progress.pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        log_frame = ttk.Frame(self.root)
+        log_frame.pack(fill="both", expand=True, **pad)
+        self.log_text = tk.Text(log_frame, state="disabled", wrap="word", height=14)
+        scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=scrollbar.set)
+        self.log_text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        bottom = ttk.Frame(self.root)
+        bottom.pack(fill="x", **pad)
+        self.open_folder_btn = ttk.Button(
+            bottom,
+            text="Open Output Folder",
+            command=self._open_output_folder,
+            state="disabled",
         )
-        return "file", files[0]
-    else:
+        self.open_folder_btn.pack(side="left")
+        ttk.Button(bottom, text="Close", command=self.root.destroy).pack(side="right")
+
+    # -- Actions ------------------------------------------------------------
+
+    def _browse(self) -> None:
         folder = filedialog.askdirectory(
-            title="Select folder containing Excel reports",
-            parent=root,
+            title="Select folder containing Excel reports", parent=self.root
         )
-        root.destroy()
+        if folder:
+            self.folder_var.set(folder)
+
+    def _log(self, message: str) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", message + "\n")
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _start_generation(self) -> None:
+        folder = self.folder_var.get().strip()
         if not folder:
-            return "", ""
-        return "directory", folder
-
-
-def _manual_path_entry() -> tuple[str, str]:
-    """Fallback: ask user to type the path."""
-    console.print("\nEnter the path to your Excel file or folder:")
-    path_str = input("> ").strip().strip('"').strip("'")
-    if not path_str:
-        return "", ""
-    p = Path(path_str)
-    if p.is_dir():
-        return "directory", str(p)
-    elif p.is_file():
-        return "file", str(p)
-    else:
-        console.print(f"\n[red]Path not found: {path_str}[/red]")
-        return "", ""
-
-
-def _ask_date(label: str) -> str:
-    """Prompt for a date in YYYY-MM-DD format with validation."""
-    while True:
-        value = input(f"\n{label} (YYYY-MM-DD): ").strip()
-        try:
-            datetime.strptime(value, "%Y-%m-%d")
-            return value
-        except ValueError:
-            console.print(
-                f"[red]'{value}' is not a valid date. "
-                f"Please use the format YYYY-MM-DD (e.g. 2026-01-15).[/red]"
+            messagebox.showerror(
+                "No folder selected",
+                "Please choose the folder that contains your Excel reports.",
             )
+            return
+
+        if not list(Path(folder).glob("*.xlsx")):
+            messagebox.showerror(
+                "No Excel files found",
+                f"No .xlsx files were found in:\n{folder}\n\nPlease choose a different folder.",
+            )
+            return
+
+        start_d = self.start_date.get_date()
+        end_d = self.end_date.get_date()
+        if end_d < start_d:
+            messagebox.showerror(
+                "Invalid date range", "The end date must be on or after the start date."
+            )
+            return
+
+        try:
+            runs = load_runs()
+        except Exception as e:
+            messagebox.showerror("Configuration error", f"Could not load configuration:\n{e}")
+            return
+
+        defaults = [r for r in runs if r.name == "default"]
+        if not defaults:
+            messagebox.showerror(
+                "Configuration error",
+                "No 'default' run found in config/runs.json. "
+                "Please make sure a run named 'default' exists.",
+            )
+            return
+
+        start = start_d.strftime("%Y-%m-%d")
+        end = end_d.strftime("%Y-%m-%d")
+        base = defaults[0]
+        run = base.model_copy(
+            update={
+                "start": start,
+                "end": end,
+                "input": InputConfig(type="directory", path=folder),
+            }
+        )
+
+        now = datetime.now()
+        self.output_dir = (
+            OUTPUT_DIR
+            / "pptx"
+            / "easy"
+            / now.strftime("%Y")
+            / now.strftime("%m")
+            / now.strftime("%d")
+            / now.strftime("%Y-%m-%d_%H-%M-%S")
+        )
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._attach_logging(self.output_dir)
+
+        self.generate_btn.configure(state="disabled")
+        self.open_folder_btn.configure(state="disabled")
+        self.progress.start(12)
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
+        self._log(f"Generating presentations for {start} to {end}...")
+
+        threading.Thread(target=self._run_generation, args=(run,), daemon=True).start()
+
+    def _attach_logging(self, output_dir: Path) -> None:
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+
+        self.file_handler = logging.FileHandler(output_dir / "run.log")
+        self.file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        self.queue_handler = _QueueLogHandler(self.log_queue)
+        self.queue_handler.setFormatter(logging.Formatter("%(message)s"))
+
+        root_logger.handlers.clear()
+        root_logger.addHandler(self.file_handler)
+        root_logger.addHandler(self.queue_handler)
+
+    def _detach_logging(self) -> None:
+        root_logger = logging.getLogger()
+        if self.file_handler is not None:
+            root_logger.removeHandler(self.file_handler)
+            self.file_handler.close()
+            self.file_handler = None
+        if self.queue_handler is not None:
+            root_logger.removeHandler(self.queue_handler)
+            self.queue_handler = None
+
+    def _run_generation(self, run: RunConfig) -> None:
+        try:
+            written = generate_presentations(run, self.output_dir)
+            error = None
+        except Exception as e:
+            written = []
+            error = str(e)
+        self.root.after(0, self._on_generation_done, written, error)
+
+    def _on_generation_done(self, written: list[Path], error: str | None) -> None:
+        self._detach_logging()
+        self.progress.stop()
+        self.generate_btn.configure(state="normal")
+        self.open_folder_btn.configure(state="normal")
+
+        if error is not None:
+            self._log(f"\nSomething went wrong: {error}")
+            self._log(f"For details, see the log: {self.output_dir / 'run.log'}")
+            messagebox.showerror("Generation failed", f"Something went wrong:\n{error}")
+            return
+
+        if not written:
+            self._log("\nNo presentations were generated.")
+            self._log("This can happen if no data matched the selected date range,")
+            self._log("or if the Excel files didn't have the expected columns.")
+            self._log(f"For details, see the log: {self.output_dir / 'run.log'}")
+            messagebox.showwarning(
+                "No presentations created",
+                "No presentations were generated. See the log for details.",
+            )
+            return
+
+        self._log(f"\nDone! {len(written)} presentation(s) created.")
+        for path in written:
+            self._log(f"  {path.name}")
+        self._log(f"\nYour reports are here: {self.output_dir.resolve()}")
+
+        messagebox.showinfo("Done", f"{len(written)} presentation(s) created.")
+        _open_folder(self.output_dir)
+
+    def _open_output_folder(self) -> None:
+        if self.output_dir is not None:
+            _open_folder(self.output_dir)
+
+    def _poll_log_queue(self) -> None:
+        try:
+            while True:
+                self._log(self.log_queue.get_nowait())
+        except queue.Empty:
+            pass
+        self.root.after(100, self._poll_log_queue)
+
+    def run(self) -> None:
+        self.root.mainloop()
 
 
 def run_easy() -> None:
-    """Interactive wizard entry point."""
-    console.print("\n[bold]hopptx — Presentation Generator[/bold]")
-    console.print("=" * 40)
-
-    # Step 1: Pick files
-    input_type, input_path = _pick_files_or_folder()
-    if not input_path:
-        console.print("\nNo file or folder selected. Exiting.")
-        return
-
-    selected = Path(input_path)
-    console.print(f"\nSelected: [bold]{selected}[/bold]")
-
-    # Step 2: Ask for date range
-    console.print("\nEnter the date range for the report:")
-    start = _ask_date("Start date")
-    end = _ask_date("End date  ")
-
-    # Step 3: Load default config and override input + dates
-    console.print("\nLoading configuration...")
-    try:
-        runs = load_runs()
-    except Exception as e:
-        console.print(f"\n[red]Could not load configuration: {e}[/red]")
-        _wait_for_key()
-        return
-
-    defaults = [r for r in runs if r.name == "default"]
-    if not defaults:
-        console.print(
-            "\n[red]No 'default' run found in config/runs.json. "
-            "Please make sure a run named 'default' exists.[/red]"
-        )
-        _wait_for_key()
-        return
-
-    base = defaults[0]
-    run = base.model_copy(update={
-        "start": start,
-        "end": end,
-        "input": InputConfig(type=input_type, path=input_path),
-    })
-
-    # Step 4: Set up output directory and logging
-    now = datetime.now()
-    output_dir = (
-        OUTPUT_DIR
-        / "pptx"
-        / "easy"
-        / now.strftime("%Y")
-        / now.strftime("%m")
-        / now.strftime("%d")
-        / now.strftime("%Y-%m-%d_%H-%M-%S")
-    )
-    file_handler = _setup_logging(output_dir)
-
-    # Step 5: Run
-    console.print(f"\nGenerating presentations for [bold]{start}[/bold] to [bold]{end}[/bold]...\n")
-    try:
-        written = generate_presentations(run, output_dir)
-    except Exception as e:
-        console.print(f"\n[red]Something went wrong: {e}[/red]")
-        console.print(f"\nFor details, see the log: [link=file://{output_dir / 'run.log'}]{output_dir / 'run.log'}[/link]")
-        logging.root.removeHandler(file_handler)
-        file_handler.close()
-        _wait_for_key()
-        return
-
-    logging.root.removeHandler(file_handler)
-    file_handler.close()
-
-    # Step 6: Show results
-    if not written:
-        console.print("\n[yellow]No presentations were generated.[/yellow]")
-        console.print("This can happen if no data matched the selected date range,")
-        console.print("or if the Excel files didn't have the expected columns.")
-        console.print(f"\nFor details, see the log: {output_dir / 'run.log'}")
-        _wait_for_key()
-        return
-
-    console.print(f"\n[bold green]Done![/bold green] {len(written)} presentation(s) created.\n")
-    for path in written:
-        console.print(f"  {path.name}")
-
-    console.print(f"\n[bold]Your reports are here:[/bold]  {output_dir.resolve()}")
-    console.print(f"[bold]Full log:[/bold]              {(output_dir / 'run.log').resolve()}")
-
-    # Try to open the output folder
-    _open_folder(output_dir)
-
-    _wait_for_key()
-
-
-def _wait_for_key() -> None:
-    """Wait for user to press Enter before closing (useful when run from a shortcut)."""
-    console.print("\nPress [bold]Enter[/bold] to close.")
-    input()
+    """GUI wizard entry point."""
+    EasyApp().run()
