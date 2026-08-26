@@ -4,33 +4,18 @@ Generate PowerPoint presentations from Calendly sign-up data.
 
 ## Setup (one time)
 
-### 1. Install UV
-
-UV is a small tool that manages Python for you. Install it from:
+Install UV — a small tool that manages Python for you:
 
 https://docs.astral.sh/uv/getting-started/installation/
 
 You do not need to install Python separately — UV handles that automatically.
 
-### 2. Create a desktop shortcut
-
-Open the `hopptx` folder in a terminal:
-
-**Windows:** Right-click the `hopptx` folder and select **"Open in Terminal"**.
-
-**Mac:** Right-click the `hopptx` folder and select **"New Terminal at Folder"** (you may need to enable this in System Settings > Keyboard > Shortcuts > Services).
-
-Then paste this command and press Enter:
-
-```
-uv run hopptx-setup-shortcut
-```
-
-This creates a shortcut on your Desktop. From now on, just double-click it.
-
 ## Usage
 
-Double-click the **hopptx** shortcut on your Desktop (or run `uv run hopptx-easy` from a terminal in the project folder).
+Open the `hopptx` folder and double-click:
+
+- **Windows:** `run.bat`
+- **Mac:** `run.command`
 
 The tool will:
 
