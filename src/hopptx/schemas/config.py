@@ -111,6 +111,9 @@ class RunConfig(BaseModel):
 
 def load_runs(runs_file: Path = RUNS_FILE) -> list[RunConfig]:
     if not runs_file.exists():
-        raise FileNotFoundError(f"Runs config not found: {runs_file}")
+        raise FileNotFoundError(
+            f"Configuration file not found: {runs_file}. "
+            f"Make sure you are running the command from the project folder."
+        )
     raw = json.loads(runs_file.read_text(), parse_float=Decimal)
     return [RunConfig.model_validate(r) for r in raw]

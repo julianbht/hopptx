@@ -111,7 +111,10 @@ def _execute_run(name: str) -> None:
     runs = load_runs()
     matches = [r for r in runs if r.name == name]
     if not matches:
-        raise SystemExit(f"No run named '{name}' found in {RUNS_FILE}")
+        raise SystemExit(
+            f"No run named '{name}' found in {RUNS_FILE}. "
+            f"Available runs: {[r.name for r in runs]}."
+        )
     run = matches[0]
 
     now = datetime.now()

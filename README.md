@@ -2,41 +2,67 @@
 
 Generate PowerPoint presentations from sign-up report data.
 
-## Prerequisites
+## Getting Started
 
-- [UV](https://docs.astral.sh/uv/getting-started/installation/) — UV will install the correct Python version automatically if needed.
+### 1. Install UV
 
-## Setup
+UV is a tool that manages Python and project dependencies for you. Install it by following the instructions at:
 
-```sh
+https://docs.astral.sh/uv/getting-started/installation/
+
+You do not need to install Python separately — UV handles that automatically.
+
+### 2. Open a Terminal
+
+You need a terminal (command line) to run this tool.
+
+**Windows:**
+Press `Win + R`, type `cmd`, and press Enter. Or search for "Command Prompt" in the Start menu.
+
+**Mac:**
+Press `Cmd + Space`, type `Terminal`, and press Enter.
+
+Then navigate to the project folder. For example, if the project is on your Desktop:
+
+```
+cd Desktop/hopptx
+```
+
+### 3. Install Dependencies
+
+Run this once (or after updates):
+
+```
 uv sync
 ```
 
-## Input
+This downloads everything the tool needs to run. It only needs to be done once.
 
-The program reads `.xlsx` Excel files. Each file represents one company and must have:
+### 4. Prepare Your Data
+
+Place your `.xlsx` Excel files in the folder specified by `input.path` in `config/runs.json` (by default, the `reports/` folder).
+
+Each Excel file represents one company and must have:
 
 - **One sheet**, named after the company (the sheet name becomes the company name in the presentation).
-- **These exact columns:**
+- **The following columns** (extra columns are fine and will be ignored):
 
-| Column | Type | Description |
-|--------|------|-------------|
-| User Name | text | Calendly user who owns the event |
-| Team | text | Team the user belongs to |
-| Invitee Name | text | Full name of the person who signed up |
-| Invitee First Name | text | First name |
-| Invitee Last Name | text | Last name |
-| Invitee Email | text | Email address |
-| Event Type Name | text | Name of the training/workshop |
-| Start Date & Time | datetime | When the session starts |
-| Event Created Date & Time | datetime | When the sign-up was created |
-| Canceled | boolean | Whether the sign-up was canceled |
+| Column | Description |
+|--------|-------------|
+| User Name | Calendly user who owns the event |
+| Team | Team the user belongs to |
+| Invitee Name | Full name of the person who signed up |
+| Invitee First Name | First name |
+| Invitee Last Name | Last name |
+| Invitee Email | Email address |
+| Event Type Name | Name of the training/workshop |
+| Start Date & Time | When the session starts |
+| Event Created Date & Time | When the sign-up was created |
+| Canceled | Whether the sign-up was canceled |
 
-No extra columns are allowed. The column names must match exactly.
+If any of these columns are missing, the tool will tell you which ones are missing and stop.
 
-Place the `.xlsx` files in the path specified by `input.path` in `config/runs.json`.
-
-## Configuration
+### 5. Configure
 
 Edit `config/runs.json` before each run. The key fields:
 
@@ -51,26 +77,26 @@ Edit `config/runs.json` before each run. The key fields:
 
 The other fields (template, topic grouping, fuzzy thresholds, etc.) are tuned and generally don't need changing.
 
-## Running
+### 6. Run
 
-```sh
+```
 uv run hopptx default
 ```
 
-Where `default` is the run name defined in `config/runs.json`. You can define multiple runs with different names and configurations.
+This reads your Excel files, calculates training metrics, and generates one PowerPoint presentation per company.
 
-Shortcut to always run the `default` run:
+The output is saved to `output/pptx/default/...` in a timestamped folder. A `run.log` file is also created there with details about what happened.
 
-```sh
+#### Shortcut
+
+```
 uv run hopptx-default
 ```
 
-## Output
-
-Presentations are written to `output/pptx/{run-name}/YYYY/MM/DD/YYYY-MM-DD_HH-MM-SS/` — one `.pptx` per company, plus a `run.log`.
+Does the same thing — runs the `default` configuration.
 
 ## Tests
 
-```sh
+```
 uv run pytest
 ```

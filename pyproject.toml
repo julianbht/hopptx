@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+docs = ["markdown-pdf>=1.0"]
 
 [project.scripts]
 hopptx         = "hopptx.main:app"

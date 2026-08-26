@@ -192,7 +192,11 @@ def compute_metrics(
     filtered = df[date_mask]
 
     if filtered.empty:
-        raise ValueError(f"No sign-ups found in date range {start} to {end}")
+        raise ValueError(
+            f"No sign-ups found between {start} and {end}. "
+            f"Check that the 'start' and 'end' dates in config/runs.json "
+            f"match the date range of your data."
+        )
 
     log.info(f"Found {len(filtered)} sign-ups in date range {start} to {end}")
 
@@ -214,8 +218,10 @@ def compute_metrics(
         filtered = filtered[~canceled_mask]
         if filtered.empty:
             raise ValueError(
-                f"No non-canceled sign-ups in date range {start} to {end} "
-                f"(all {canceled_count} sign-ups were canceled)"
+                f"All {canceled_count} sign-ups between {start} and {end} were canceled, "
+                f"so there is no attendance data to report. "
+                f"If you want to include canceled sign-ups, set 'exclude_canceled' "
+                f"to false in config/runs.json."
             )
         log.info(f"Excluded {canceled_count} canceled sign-ups")
 

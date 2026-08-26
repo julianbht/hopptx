@@ -11,7 +11,10 @@ def load_category_map(path: str) -> dict[str, str]:
     """Read the Workshop_descriptions.docx table and return {course_name: category}."""
     doc_path = Path(path)
     if not doc_path.exists():
-        raise FileNotFoundError(f"Category reference document not found: {path}")
+        raise FileNotFoundError(
+            f"Category reference document not found: {path}. "
+            f"Please check the 'category_reference' path in config/runs.json."
+        )
 
     doc = Document(str(doc_path))
     category_map: dict[str, str] = {}
