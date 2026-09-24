@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 
 import pandas as pd
@@ -99,16 +100,28 @@ def test_load_report_file_drops_empty_rows_and_parses_text_canceled(tmp_path) ->
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"Event Type Name": " "}, r"'Event Type Name' column is empty in row\(s\) 2"),
-        ({"Start Date & Time": "soon"}, "'Start Date & Time' column has values that are not dates"),
-        ({"Canceled": "maybe"}, "'Canceled' column must contain TRUE/FALSE"),
+        ({"Event Type Name": " "}, r"row\(s\) 3 because the 'Event Type Name' cell is empty"),
+        ({"Start Date & Time": "soon"}, "'Start Date & Time' is not a date"),
+        ({"Canceled": "maybe"}, "'Canceled' is not TRUE/FALSE"),
     ],
 )
-def test_load_report_file_reports_bad_cells_with_excel_row(tmp_path, overrides, message) -> None:
+def test_load_report_file_ignores_bad_rows_with_warning(
+    tmp_path, caplog: pytest.LogCaptureFixture, overrides, message
+) -> None:
     path = tmp_path / "report.xlsx"
-    _write_report(path, [_row(**overrides)])
+    _write_report(path, [_row(), _row(**overrides)])
 
-    with pytest.raises(ValueError, match=message):
+    _, df = loader.load_report_file(path)
+
+    assert len(df) == 1
+    assert re.search(message, caplog.text)
+
+
+def test_load_report_file_raises_when_no_row_is_usable(tmp_path) -> None:
+    path = tmp_path / "report.xlsx"
+    _write_report(path, [_row(Canceled="maybe")])
+
+    with pytest.raises(ValueError, match="no usable rows"):
         loader.load_report_file(path)
 
 

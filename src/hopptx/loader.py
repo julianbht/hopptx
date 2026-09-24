@@ -43,28 +43,27 @@ def _excel_rows(index: pd.Index) -> str:
     return ", ".join(rows) + (f" and {more} more" if more > 0 else "")
 
 
+def _examples(values: pd.Series) -> list[str]:
+    return sorted({str(v) for v in values})[:_MAX_ROWS_IN_MESSAGE]
+
+
 def _is_blank(series: pd.Series) -> pd.Series:
     return series.isna() | (series.astype(str).str.strip() == "")
 
 
-def _parse_canceled(series: pd.Series, file_name: str) -> pd.Series:
+def _parse_canceled(series: pd.Series) -> pd.Series:
+    """Map TRUE/FALSE and Yes/No to booleans; anything else becomes missing."""
     if series.dtype == bool:
         return series
-    parsed = series.map(
-        lambda value: value if isinstance(value, bool) else _CANCELED_VALUES.get(str(value).strip().casefold())
+    return series.map(
+        lambda value: value
+        if isinstance(value, bool)
+        else _CANCELED_VALUES.get(str(value).strip().casefold())
     )
-    unknown = parsed.isna()
-    if unknown.any():
-        examples = sorted({str(v) for v in series[unknown]})[:_MAX_ROWS_IN_MESSAGE]
-        raise ValueError(
-            f"'{file_name}': the 'Canceled' column must contain TRUE/FALSE (or Yes/No), "
-            f"but row(s) {_excel_rows(series.index[unknown])} contain {examples}."
-        )
-    return parsed.astype(bool)
 
 
 def _clean_report(df: pd.DataFrame, file_name: str) -> pd.DataFrame:
-    """Keep the required columns, drop empty rows, and turn bad cells into clear errors."""
+    """Keep the required columns and drop rows that can't be used, with a warning per column."""
     df = df[list(REQUIRED_COLUMNS)].copy()
 
     blank = df.apply(_is_blank)
@@ -74,25 +73,43 @@ def _clean_report(df: pd.DataFrame, file_name: str) -> pd.DataFrame:
         df = df[~empty_rows]
         blank = blank[~empty_rows]
 
+    unusable = pd.Series(False, index=df.index)
     for column in REQUIRED_COLUMNS:
         if blank[column].any():
-            raise ValueError(
-                f"'{file_name}': the '{column}' column is empty in row(s) "
-                f"{_excel_rows(df.index[blank[column]])}. "
-                f"Please fill in these cells or delete the rows."
+            log.warning(
+                f"'{file_name}': ignoring row(s) {_excel_rows(df.index[blank[column]])} "
+                f"because the '{column}' cell is empty."
             )
+        unusable |= blank[column]
 
     for column in DATE_COLUMNS:
         parsed = pd.to_datetime(df[column], errors="coerce")
-        invalid = parsed.isna()
+        invalid = parsed.isna() & ~blank[column]
         if invalid.any():
-            raise ValueError(
-                f"'{file_name}': the '{column}' column has values that are not dates in row(s) "
-                f"{_excel_rows(df.index[invalid])}."
+            log.warning(
+                f"'{file_name}': ignoring row(s) {_excel_rows(df.index[invalid])} "
+                f"because '{column}' is not a date: {_examples(df[column][invalid])}"
             )
+        unusable |= invalid
         df[column] = parsed
 
-    df["Canceled"] = _parse_canceled(df["Canceled"], file_name)
+    canceled = _parse_canceled(df["Canceled"])
+    invalid = canceled.isna() & ~blank["Canceled"]
+    if invalid.any():
+        log.warning(
+            f"'{file_name}': ignoring row(s) {_excel_rows(df.index[invalid])} "
+            f"because 'Canceled' is not TRUE/FALSE or Yes/No: {_examples(df['Canceled'][invalid])}"
+        )
+    unusable |= invalid
+    df["Canceled"] = canceled
+
+    df = df[~unusable]
+    if df.empty:
+        raise ValueError(
+            f"'{file_name}' has no usable rows: every row has an empty or invalid "
+            f"value in one of the required columns ({', '.join(REQUIRED_COLUMNS)})."
+        )
+    df["Canceled"] = df["Canceled"].astype(bool)
     df["Event Type Name"] = df["Event Type Name"].astype(str).str.strip()
     return df
 

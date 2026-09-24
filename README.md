@@ -38,7 +38,7 @@ These columns are required (column order doesn't matter; all other columns are i
 | Canceled | Withdrawn sign-ups (TRUE/FALSE or Yes/No) |
 | Invitee Email | Number of unique attendees |
 
-Completely empty rows are ignored. If a required cell is empty or not a valid date, the file is skipped and the message names the Excel row to fix. Other files are still processed; skipped files and companies are listed when the run finishes.
+Completely empty rows are ignored. Rows where a required cell is empty or unreadable (e.g. a date that isn't a date) are left out of the statistics, and a warning in the window and the log names the Excel rows. A file is only skipped if none of its rows can be used. Skipped files and companies are listed when the run finishes.
 
 If the app fails to start, the details are written to `output/hopptx-error.log`.
 
