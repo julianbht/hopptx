@@ -194,8 +194,7 @@ def compute_metrics(
     if filtered.empty:
         raise ValueError(
             f"No sign-ups found between {start} and {end}. "
-            f"Check that the 'start' and 'end' dates in config/runs.json "
-            f"match the date range of your data."
+            f"Check that the selected dates match the dates in the Excel file."
         )
 
     log.info(f"Found {len(filtered)} sign-ups in date range {start} to {end}")

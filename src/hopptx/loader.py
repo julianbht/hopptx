@@ -1,24 +1,100 @@
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
 
 from hopptx.schemas.config import RunConfig
+from hopptx.schemas.results import Skipped
 
 log = logging.getLogger(__name__)
 
-EXPECTED_COLUMNS = {
-    "User Name",
-    "Team",
-    "Invitee Name",
-    "Invitee First Name",
-    "Invitee Last Name",
-    "Invitee Email",
-    "Event Type Name",
-    "Start Date & Time",
-    "Event Created Date & Time",
-    "Canceled",
+# Only the columns the statistics are computed from; every other column is ignored.
+REQUIRED_COLUMNS = (
+    "Event Type Name",  # program name: topics, top programs, categories, sessions
+    "Start Date & Time",  # session date: date range filter, first/last attended, sessions
+    "Event Created Date & Time",  # first/last sign-up date
+    "Canceled",  # withdrawn sign-ups, excluding canceled sign-ups
+    "Invitee Email",  # unique attendees
+)
+DATE_COLUMNS = ("Start Date & Time", "Event Created Date & Time")
+
+_CANCELED_VALUES = {
+    "true": True,
+    "yes": True,
+    "1": True,
+    "false": False,
+    "no": False,
+    "0": False,
 }
+_MAX_ROWS_IN_MESSAGE = 5
+
+UNKNOWN_COMPANY = "Unknown Company"
+# Names Excel gives new sheets (English, German, French, Spanish, Italian, Dutch).
+_DEFAULT_SHEET_NAME = re.compile(
+    r"(sheet|tabelle|feuil|hoja|foglio|blad)\s*\d*", re.IGNORECASE
+)
+
+
+def _excel_rows(index: pd.Index) -> str:
+    """Format DataFrame row labels as the row numbers the user sees in Excel (header is row 1)."""
+    rows = [str(i + 2) for i in index[:_MAX_ROWS_IN_MESSAGE]]
+    more = len(index) - len(rows)
+    return ", ".join(rows) + (f" and {more} more" if more > 0 else "")
+
+
+def _is_blank(series: pd.Series) -> pd.Series:
+    return series.isna() | (series.astype(str).str.strip() == "")
+
+
+def _parse_canceled(series: pd.Series, file_name: str) -> pd.Series:
+    if series.dtype == bool:
+        return series
+    parsed = series.map(
+        lambda value: value if isinstance(value, bool) else _CANCELED_VALUES.get(str(value).strip().casefold())
+    )
+    unknown = parsed.isna()
+    if unknown.any():
+        examples = sorted({str(v) for v in series[unknown]})[:_MAX_ROWS_IN_MESSAGE]
+        raise ValueError(
+            f"'{file_name}': the 'Canceled' column must contain TRUE/FALSE (or Yes/No), "
+            f"but row(s) {_excel_rows(series.index[unknown])} contain {examples}."
+        )
+    return parsed.astype(bool)
+
+
+def _clean_report(df: pd.DataFrame, file_name: str) -> pd.DataFrame:
+    """Keep the required columns, drop empty rows, and turn bad cells into clear errors."""
+    df = df[list(REQUIRED_COLUMNS)].copy()
+
+    blank = df.apply(_is_blank)
+    empty_rows = blank.all(axis=1)
+    if empty_rows.any():
+        log.info(f"Ignoring {int(empty_rows.sum())} empty row(s) in {file_name}")
+        df = df[~empty_rows]
+        blank = blank[~empty_rows]
+
+    for column in REQUIRED_COLUMNS:
+        if blank[column].any():
+            raise ValueError(
+                f"'{file_name}': the '{column}' column is empty in row(s) "
+                f"{_excel_rows(df.index[blank[column]])}. "
+                f"Please fill in these cells or delete the rows."
+            )
+
+    for column in DATE_COLUMNS:
+        parsed = pd.to_datetime(df[column], errors="coerce")
+        invalid = parsed.isna()
+        if invalid.any():
+            raise ValueError(
+                f"'{file_name}': the '{column}' column has values that are not dates in row(s) "
+                f"{_excel_rows(df.index[invalid])}."
+            )
+        df[column] = parsed
+
+    df["Canceled"] = _parse_canceled(df["Canceled"], file_name)
+    df["Event Type Name"] = df["Event Type Name"].astype(str).str.strip()
+    return df
 
 
 def load_report_file(path: Path) -> tuple[str, pd.DataFrame]:
@@ -36,27 +112,58 @@ def load_report_file(path: Path) -> tuple[str, pd.DataFrame]:
             f"Please make sure it contains at least one sheet with your data."
         )
 
-    company = xl.sheet_names[0]  # Company name is the sheet name
-    df = xl.parse(company)
+    company = str(xl.sheet_names[0]).strip()  # Company name is the sheet name
+    if _DEFAULT_SHEET_NAME.fullmatch(company):
+        log.warning(
+            f"'{path.name}': sheet name '{company}' is not a company name, "
+            f"using '{UNKNOWN_COMPANY}'. Rename the sheet to the company name to fix this."
+        )
+        company = UNKNOWN_COMPANY
+    df = xl.parse(xl.sheet_names[0])
+    # Stray spaces in headers are invisible in Excel, so don't let them fail validation.
+    df.columns = [str(column).strip() for column in df.columns]
 
-    # Validate that all required columns are present (extra columns are ignored)
-    actual_cols = set(df.columns)
-    missing = EXPECTED_COLUMNS - actual_cols
-
+    missing = [column for column in REQUIRED_COLUMNS if column not in df.columns]
     if missing:
         raise ValueError(
-            f"The Excel file '{path.name}' is missing required column(s): "
-            f"{', '.join(sorted(missing))}. "
-            f"Please make sure your file contains all of these columns: "
-            f"{', '.join(sorted(EXPECTED_COLUMNS))}."
+            f"The Excel file '{path.name}' (first sheet '{company}') is missing required "
+            f"column(s): {', '.join(missing)}. "
+            f"Required columns: {', '.join(REQUIRED_COLUMNS)}. "
+            f"Columns found: {', '.join(df.columns)}."
         )
 
-    extra = actual_cols - EXPECTED_COLUMNS
-    if extra:
-        log.info(f"Ignoring extra column(s) in {path.name}: {sorted(extra)}")
-
+    df = _clean_report(df, path.name)
     log.info(f"Loaded {len(df)} rows from {path.name} (company: {company})")
     return company, df
+
+
+def _load_report_files(
+    xlsx_files: list[Path],
+) -> tuple[list[tuple[str, pd.DataFrame]], list[Skipped]]:
+    """Load each file, skipping (and reporting) the ones that fail instead of aborting."""
+    results: list[tuple[str, pd.DataFrame]] = []
+    skipped: list[Skipped] = []
+    for file in xlsx_files:
+        # Excel's lock files ("~$name.xlsx") appear next to files that are open in Excel.
+        if file.name.startswith("~$"):
+            continue
+        try:
+            results.append(load_report_file(file))
+        except Exception as e:
+            log.warning(f"Skipping '{file.name}': {e}")
+            skipped.append(Skipped(name=file.name, reason=str(e)))
+
+    if skipped:
+        log.warning(
+            f"Skipped {len(skipped)} file(s) that could not be loaded: "
+            f"{', '.join(s.name for s in skipped)}"
+        )
+    if not results:
+        reasons = "\n".join(f"- {s.name}: {s.reason}" for s in skipped)
+        raise ValueError(f"None of the Excel files could be loaded.\n{reasons}")
+
+    log.info(f"Loaded {len(results)} report file(s)")
+    return results, skipped
 
 
 def _filter_reports_by_companies(
@@ -87,36 +194,19 @@ def _filter_reports_by_companies(
     return filtered
 
 
-def load_reports(config: RunConfig) -> list[tuple[str, pd.DataFrame]]:
-    """Load report files based on input config (file, directory, or files)."""
+def load_reports(
+    config: RunConfig,
+) -> tuple[list[tuple[str, pd.DataFrame]], list[Skipped]]:
+    """Load report files based on input config (file, directory, or files).
+
+    Returns the loaded (company, data) pairs and the files that were skipped.
+    """
     companies_inline = config.companies_inline
 
     if config.input.type == "files":
         xlsx_files = [Path(p) for p in (config.input.paths or [])]
-
-        results = []
-        skipped = []
-        for file in xlsx_files:
-            try:
-                results.append(load_report_file(file))
-            except (ValueError, Exception) as e:
-                log.warning(f"Skipping '{file.name}': {e}")
-                skipped.append(file.name)
-
-        if skipped:
-            log.warning(
-                f"Skipped {len(skipped)} file(s) that could not be loaded: "
-                f"{', '.join(skipped)}"
-            )
-
-        if not results:
-            raise ValueError(
-                "None of the selected .xlsx files could be loaded. "
-                "Make sure your Excel files have the required columns."
-            )
-
-        log.info(f"Loaded {len(results)} report file(s)")
-        return _filter_reports_by_companies(results, companies_inline)
+        reports, skipped = _load_report_files(xlsx_files)
+        return _filter_reports_by_companies(reports, companies_inline), skipped
 
     input_path = Path(config.input.path)
 
@@ -126,7 +216,7 @@ def load_reports(config: RunConfig) -> list[tuple[str, pd.DataFrame]]:
                 f"Input file not found: {input_path}. "
                 f"Please check the 'input.path' setting in config/runs.json."
             )
-        return _filter_reports_by_companies([load_report_file(input_path)], companies_inline)
+        return _filter_reports_by_companies([load_report_file(input_path)], companies_inline), []
 
     elif config.input.type == "directory":
         if not input_path.exists():
@@ -142,29 +232,8 @@ def load_reports(config: RunConfig) -> list[tuple[str, pd.DataFrame]]:
                 f"Make sure the folder contains Excel files with the .xlsx extension."
             )
 
-        results = []
-        skipped = []
-        for file in xlsx_files:
-            try:
-                results.append(load_report_file(file))
-            except (ValueError, Exception) as e:
-                log.warning(f"Skipping '{file.name}': {e}")
-                skipped.append(file.name)
-
-        if skipped:
-            log.warning(
-                f"Skipped {len(skipped)} file(s) that could not be loaded: "
-                f"{', '.join(skipped)}"
-            )
-
-        if not results:
-            raise ValueError(
-                f"None of the .xlsx files in '{input_path}' could be loaded. "
-                f"Make sure your Excel files have the required columns."
-            )
-
-        log.info(f"Loaded {len(results)} report files from {input_path}")
-        return _filter_reports_by_companies(results, companies_inline)
+        reports, skipped = _load_report_files(xlsx_files)
+        return _filter_reports_by_companies(reports, companies_inline), skipped
 
     else:
         raise ValueError(f"Invalid input type: {config.input.type}")

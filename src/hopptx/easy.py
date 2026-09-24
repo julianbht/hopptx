@@ -12,6 +12,7 @@ import queue
 import subprocess
 import threading
 import tkinter as tk
+import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -21,6 +22,10 @@ from tkcalendar import DateEntry
 from hopptx.main import generate_presentations
 from hopptx.paths import OUTPUT_DIR
 from hopptx.schemas.config import InputConfig, RunConfig, load_runs
+from hopptx.schemas.results import GenerationResult
+
+# The app runs without a console, so errors outside a generation run land here.
+CRASH_LOG = OUTPUT_DIR / "hopptx-error.log"
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +74,7 @@ class EasyApp:
         self.file_handler: logging.FileHandler | None = None
         self.queue_handler: _QueueLogHandler | None = None
 
+        self.root.report_callback_exception = self._on_unexpected_error
         self._build_ui()
         self.root.after(100, self._poll_log_queue)
 
@@ -258,14 +264,15 @@ class EasyApp:
 
     def _run_generation(self, run: RunConfig) -> None:
         try:
-            written = generate_presentations(run, self.output_dir)
+            result = generate_presentations(run, self.output_dir)
             error = None
         except Exception as e:
-            written = []
+            log.exception("Generation failed")
+            result = GenerationResult()
             error = str(e)
-        self.root.after(0, self._on_generation_done, written, error)
+        self.root.after(0, self._on_generation_done, result, error)
 
-    def _on_generation_done(self, written: list[Path], error: str | None) -> None:
+    def _on_generation_done(self, result: GenerationResult, error: str | None) -> None:
         self._detach_logging()
         self.progress.stop()
         self.generate_btn.configure(state="normal")
@@ -277,24 +284,45 @@ class EasyApp:
             messagebox.showerror("Generation failed", f"Something went wrong:\n{error}")
             return
 
-        if not written:
+        skipped_lines = [f"- {s.name}: {s.reason}" for s in result.skipped]
+        if skipped_lines:
+            self._log(f"\nSkipped {len(skipped_lines)} file(s)/company(ies):")
+            for line in skipped_lines:
+                self._log(f"  {line}")
+
+        if not result.written:
             self._log("\nNo presentations were generated.")
-            self._log("This can happen if no data matched the selected date range,")
-            self._log("or if the Excel files didn't have the expected columns.")
             self._log(f"For details, see the log: {self.output_dir / 'run.log'}")
             messagebox.showwarning(
                 "No presentations created",
-                "No presentations were generated. See the log for details.",
+                "No presentations were generated.\n\n" + _shorten("\n".join(skipped_lines)),
             )
             return
 
-        self._log(f"\nDone! {len(written)} presentation(s) created.")
-        for path in written:
+        self._log(f"\nDone! {len(result.written)} presentation(s) created.")
+        for path in result.written:
             self._log(f"  {path.name}")
         self._log(f"\nYour reports are here: {self.output_dir.resolve()}")
 
-        messagebox.showinfo("Done", f"{len(written)} presentation(s) created.")
+        if skipped_lines:
+            messagebox.showwarning(
+                "Done, with problems",
+                f"{len(result.written)} presentation(s) created, "
+                f"but {len(skipped_lines)} were skipped:\n\n"
+                + _shorten("\n".join(skipped_lines)),
+            )
+        else:
+            messagebox.showinfo("Done", f"{len(result.written)} presentation(s) created.")
         _open_path(self.output_dir)
+
+    def _on_unexpected_error(
+        self, exc_type: type[BaseException], exc_value: BaseException, exc_traceback: object
+    ) -> None:
+        _write_crash_log("".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
+        messagebox.showerror(
+            "Unexpected error",
+            f"Something went wrong:\n{exc_value}\n\nDetails were saved to:\n{CRASH_LOG.resolve()}",
+        )
 
     def _open_output_folder(self) -> None:
         if self.output_dir is not None:
@@ -321,6 +349,32 @@ class EasyApp:
         self.root.mainloop()
 
 
+def _shorten(text: str, max_chars: int = 1500) -> str:
+    """Keep message boxes on screen; the full text is in the window and the log."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n...\n(see the window or the log for the full list)"
+
+
+def _write_crash_log(details: str) -> None:
+    try:
+        CRASH_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with CRASH_LOG.open("a", encoding="utf-8") as f:
+            f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} ---\n{details}\n")
+    except OSError:
+        pass  # Nowhere left to report to; the message box still shows the error
+
+
 def run_easy() -> None:
     """GUI wizard entry point."""
-    EasyApp().run()
+    try:
+        EasyApp().run()
+    except Exception as e:
+        _write_crash_log(traceback.format_exc())
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "hopptx could not start",
+            f"{e}\n\nDetails were saved to:\n{CRASH_LOG.resolve()}",
+        )
+        root.destroy()

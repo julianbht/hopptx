@@ -50,7 +50,7 @@ def categorize_topics(
     """Match attended topics to categories from the reference document.
 
     Returns {category: [topic1, topic2, ...]} with topics sorted alphabetically.
-    Raises ValueError if any topic cannot be matched.
+    Topics that match no reference course are placed in "Other".
     """
     reference_names = list(category_map.keys())
     result: dict[str, list[str]] = {}

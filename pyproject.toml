@@ -22,6 +22,9 @@ docs = ["markdown-pdf>=1.0"]
 [project.scripts]
 hopptx                = "hopptx.main:app"
 hopptx-default        = "hopptx.main:run_pptx_generator"
+
+# A GUI script runs without a console window on Windows.
+[project.gui-scripts]
 hopptx-easy           = "hopptx.easy:run_easy"
 
 [build-system]

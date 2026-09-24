@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -12,6 +13,7 @@ from hopptx.loader import load_reports
 from hopptx.processor import compute_metrics
 from hopptx.generator import generate_presentation
 from hopptx.paths import OUTPUT_DIR, RUNS_FILE
+from hopptx.schemas.results import GenerationResult, Skipped
 
 log = logging.getLogger(__name__)
 
@@ -45,15 +47,29 @@ def _complete_run_name(incomplete: str) -> list[str]:
         return []
 
 
-def generate_presentations(run: RunConfig, output_dir: Path) -> list[Path]:
-    """
-    Load reports, compute metrics, and generate PowerPoint presentations.
-    Returns the list of paths that were written.
-    """
-    reports = load_reports(run)
+# Characters Windows forbids in file names; Excel sheet names may still contain some of them.
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
+
+
+def _output_path(output_dir: Path, company: str, filename_suffix: str | None) -> Path:
+    stem = _INVALID_FILENAME_CHARS.sub("_", company).strip(" .") or "presentation"
+    if filename_suffix is not None:
+        stem = f"{stem} {filename_suffix}"
+    path = output_dir / f"{stem}.pptx"
+    # Two files with the same sheet name must not overwrite each other.
+    counter = 2
+    while path.exists():
+        path = output_dir / f"{stem} ({counter}).pptx"
+        counter += 1
+    return path
+
+
+def generate_presentations(run: RunConfig, output_dir: Path) -> GenerationResult:
+    """Load reports, compute metrics, and generate one PowerPoint presentation per company."""
+    reports, skipped_files = load_reports(run)
     log.info(f"Loaded {len(reports)} report(s)")
 
-    written = []
+    result = GenerationResult(skipped=list(skipped_files))
     for company, df in reports:
         log.info(f"\n{'=' * 60}")
         log.info(f"Processing: {company}")
@@ -76,11 +92,7 @@ def generate_presentations(run: RunConfig, output_dir: Path) -> list[Path]:
                 strip_company_prefix=run.strip_company_prefix,
                 company=company,
             )
-            if run.filename_suffix is None:
-                filename = f"{company}.pptx"
-            else:
-                filename = f"{company} {run.filename_suffix}.pptx"
-            output_path = output_dir / filename
+            output_path = _output_path(output_dir, company, run.filename_suffix)
             log.info(f"Generating presentation: {output_path}")
             generate_presentation(
                 company,
@@ -95,16 +107,16 @@ def generate_presentations(run: RunConfig, output_dir: Path) -> list[Path]:
                 run.topic_truncation_suffix,
                 template_path=run.template_path,
             )
-            written.append(output_path)
+            result.written.append(output_path)
             log.info(f"Done: {company}")
         except Exception as e:
             log.error(f"Skipping {company}: {e}")
-            continue
+            result.skipped.append(Skipped(name=company, reason=str(e)))
 
-    if not written:
+    if not result.written:
         log.warning("No presentations were produced.")
 
-    return written
+    return result
 
 
 def _execute_run(name: str) -> None:
@@ -131,8 +143,11 @@ def _execute_run(name: str) -> None:
 
     log.info(f"[bold]{run.name}[/bold]", extra={"markup": True})
 
-    written = generate_presentations(run, output_dir)
-    log.info(f"Done — {len(written)} file(s) written to {output_dir}")
+    result = generate_presentations(run, output_dir)
+    log.info(
+        f"Done — {len(result.written)} file(s) written to {output_dir}, "
+        f"{len(result.skipped)} skipped"
+    )
 
     logging.root.removeHandler(file_handler)
     file_handler.close()

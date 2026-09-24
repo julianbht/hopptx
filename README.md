@@ -15,7 +15,7 @@ Open the `hopptx` folder and double-click:
 - **Windows:** `run.bat`
 - **Mac:** `run.command`
 
-A black terminal window will briefly appear behind the app: that's normal, it's just how Windows launches the program, and you can ignore it (don't close it, or the app will close too). The actual window you'll use looks like a regular program window:
+A small black window appears for a moment while the app starts and then closes by itself (the very first start takes a minute or two because it downloads what the app needs; an internet connection is required once). On a Mac, a Terminal window stays open; you can close it once the app is showing.
 
 1. **Click "Select Files..." and pick your Excel report(s)**, you can select multiple `.xlsx` files at once.
 2. **Pick a start and end date** from the calendar date pickers.
@@ -26,22 +26,21 @@ If something goes wrong, an error message pops up. A detailed log file is always
 
 ## Excel file format
 
-Each `.xlsx` file represents one company. The first sheet name becomes the company name in the presentation.
+Each `.xlsx` file represents one company. The first sheet name becomes the company name in the presentation. If the sheet still has Excel's default name (e.g. "Sheet1" or "Tabelle1"), the presentation says "Unknown Company" instead; rename the sheet to fix it.
 
-The following columns are required (extra columns are fine and will be ignored):
+These columns are required (column order doesn't matter; all other columns are ignored):
 
-| Column | Description |
-|--------|-------------|
-| User Name | Calendly user who owns the event |
-| Team | Team the user belongs to |
-| Invitee Name | Full name of the person who signed up |
-| Invitee First Name | First name |
-| Invitee Last Name | Last name |
-| Invitee Email | Email address |
-| Event Type Name | Name of the training/workshop |
-| Start Date & Time | When the session starts |
-| Event Created Date & Time | When the sign-up was created |
-| Canceled | Whether the sign-up was canceled |
+| Column | Used for |
+|--------|----------|
+| Event Type Name | Program name: top programs, categories, session count |
+| Start Date & Time | Date range filter, first/last attended session, session count |
+| Event Created Date & Time | First/last sign-up date |
+| Canceled | Withdrawn sign-ups (TRUE/FALSE or Yes/No) |
+| Invitee Email | Number of unique attendees |
+
+Completely empty rows are ignored. If a required cell is empty or not a valid date, the file is skipped and the message names the Excel row to fix. Other files are still processed; skipped files and companies are listed when the run finishes.
+
+If the app fails to start, the details are written to `output/hopptx-error.log`.
 
 ## Advanced usage
 
